@@ -1,0 +1,11 @@
+node_modules
+dist
+.output
+.vercel
+.nitro
+.tanstack
+*.local
+.env
+.env.*
+!.env.example
+artifacts
