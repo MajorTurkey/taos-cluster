@@ -1,8 +1,13 @@
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+interface WakeLockSentinel {
+  released: boolean;
+  release(): Promise<void>;
+}
+
+interface WakeLock {
+  request(type: "screen"): Promise<WakeLockSentinel>;
 }
 
 interface Navigator {
+  wakeLock?: WakeLock;
   standalone?: boolean;
 }
