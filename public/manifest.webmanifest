@@ -1,0 +1,18 @@
+{
+  "name": "TAOS CLUSTER",
+  "short_name": "TAOS",
+  "description": "Volkswagen Taos 1.5 TSI tablet cluster",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#07080a",
+  "theme_color": "#0B0C0E",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
