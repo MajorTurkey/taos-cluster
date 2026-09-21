@@ -21,6 +21,10 @@ export function SetupPanel() {
   const setKeepAwake = useApp((s) => s.setKeepAwake);
   const lastError = useApp((s) => s.lastError);
   const startDemo = useApp((s) => s.startDemo);
+  const disconnect = useApp((s) => s.disconnect);
+  const connecting = useApp((s) => s.connecting);
+  const connection = useApp((s) => s.connection);
+  const adapterName = useApp((s) => s.adapterName);
 
   const goFullscreen = () => {
     const el = document.documentElement;
@@ -33,13 +37,23 @@ export function SetupPanel() {
         <DialogTitle>Adapter and display</DialogTitle>
         <DialogDescription>
           Kindle Fire 12th gen runs this as a night dash. Silk has no Web Bluetooth — demo works on
-          the tablet; live ELM327 needs Chrome + BLE on another device.
+          the tablet; live OBDLink CX needs Chrome + BLE on another device.
         </DialogDescription>
+        {adapterName ? (
+          <p className="mt-3 text-sm text-muted">
+            {adapterName} · {connection === "bluetooth" ? "LIVE" : connecting ? "pairing" : "waiting for ECU"}
+          </p>
+        ) : null}
         {lastError ? <p className="mt-3 text-sm text-fault">{lastError}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={() => void useApp.getState().connectBluetooth()}>Pair BLE ELM327</Button>
+          <Button disabled={connecting} onClick={() => void useApp.getState().connectBluetooth()}>
+            {connecting ? "Pairing…" : "Pair OBDLink CX"}
+          </Button>
           <Button variant="outline" onClick={startDemo}>
             Demo cluster
+          </Button>
+          <Button variant="outline" onClick={disconnect}>
+            Disconnect
           </Button>
           <Button variant="outline" onClick={goFullscreen}>
             Fullscreen
