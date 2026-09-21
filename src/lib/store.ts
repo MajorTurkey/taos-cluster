@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { ElmSession, requestElmDevice } from "@/lib/obd/elm-ble";
 import { modulesFor } from "@/lib/taos/modules";
 import { VEHICLE, type Drivetrain, type Trim } from "@/lib/taos/specs";
 import {
@@ -14,9 +15,6 @@ import {
   type Units,
   type ViewId,
 } from "@/lib/obd/types";
-
-const ELM_SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb";
-const ELM_ALT = "0000ffe0-0000-1000-8000-00805f9b34fb";
 
 interface AppState {
   view: ViewId;
@@ -36,6 +34,7 @@ interface AppState {
   modules: ModuleLive[];
   faults: FaultRecord[];
   lastError: string | null;
+  adapterName: string | null;
   setView: (view: ViewId) => void;
   setSetupOpen: (open: boolean) => void;
   setUnits: (units: Units) => void;
@@ -53,7 +52,7 @@ let runtimeStarted = false;
 let demoTimer: number | null = null;
 let clockTimer: number | null = null;
 let wakeLock: WakeLockSentinel | null = null;
-let bleDevice: BluetoothDevice | null = null;
+let elm: ElmSession | null = null;
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -115,6 +114,7 @@ export const useApp = create<AppState>((set, get) => ({
   modules: seedModules("SE", "FWD", "healthy"),
   faults: [],
   lastError: null,
+  adapterName: null,
   setView: (view) => set({ view }),
   setSetupOpen: (setupOpen) => set({ setupOpen }),
   setUnits: (units) => set({ units }),
@@ -132,47 +132,65 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
   startDemo: () => {
+    elm?.stop();
+    elm = null;
     set({
       connection: "demo",
       lastError: null,
+      adapterName: null,
       telemetry: cruiseTelemetry(get().scenario),
     });
   },
   connectBluetooth: async () => {
-    if (!navigator.bluetooth) {
-      set({
-        lastError:
-          "This Kindle Fire / Silk browser has no Web Bluetooth. Stay on Demo, or open Chrome on a phone/Android tablet that supports BLE ELM327.",
-        connection: "demo",
-        setupOpen: true,
-      });
-      return;
-    }
     set({ connecting: true, lastError: null });
     try {
-      const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [ELM_SERVICE, ELM_ALT],
+      const device = await requestElmDevice();
+      elm?.stop();
+      const session = new ElmSession(device);
+      elm = session;
+      device.addEventListener("gattserverdisconnected", () => {
+        if (elm === session) {
+          session.stop();
+          elm = null;
+          useApp.setState({
+            connection: "demo",
+            lastError: "Adapter disconnected. Back on demo.",
+            adapterName: null,
+          });
+        }
       });
-      bleDevice = device;
-      await device.gatt?.connect();
-      set({ connection: "bluetooth", connecting: false });
+      await session.start();
+      set({
+        connection: "idle",
+        connecting: false,
+        adapterName: device.name ?? "BLE adapter",
+        telemetry: emptyTelemetry(),
+        lastError: null,
+      });
+      session.startPolling((telemetry, live) => {
+        const s = useApp.getState();
+        const point = session.historyPoint(telemetry);
+        useApp.setState({
+          telemetry,
+          connection: live ? "bluetooth" : s.connection === "bluetooth" ? "bluetooth" : "idle",
+          history: [...s.history.slice(-119), point],
+        });
+      });
     } catch (err) {
+      elm?.stop();
+      elm = null;
       set({
         connecting: false,
         connection: "demo",
+        adapterName: null,
         lastError: err instanceof Error ? err.message : "Bluetooth pairing cancelled",
       });
     }
   },
   disconnect: () => {
-    try {
-      bleDevice?.gatt?.disconnect();
-    } catch {
-      // ignore
-    }
-    bleDevice = null;
-    set({ connection: "demo" });
+    elm?.stop();
+    elm = null;
+    set({ connection: "demo", adapterName: null });
   },
 }));
 
@@ -188,7 +206,7 @@ export function startRuntime() {
 
   demoTimer = window.setInterval(() => {
     const s = useApp.getState();
-    if (s.connection !== "demo" && s.connection !== "idle") return;
+    if (s.connection !== "demo") return;
     const next = tickDemo(s.telemetry, s.scenario);
     const point: HistoryPoint = {
       t: Date.now(),
