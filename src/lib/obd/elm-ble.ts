@@ -2,13 +2,17 @@ import { parsePidBytes, POLL_PIDS } from "./pids";
 import { boostPsi, emptyTelemetry, type HistoryPoint, type Telemetry } from "./types";
 
 const FFF0 = "0000fff0-0000-1000-8000-00805f9b34fb";
+const FFF1 = "0000fff1-0000-1000-8000-00805f9b34fb";
+const FFF2 = "0000fff2-0000-1000-8000-00805f9b34fb";
 const FFE0 = "0000ffe0-0000-1000-8000-00805f9b34fb";
+const FFE1 = "0000ffe1-0000-1000-8000-00805f9b34fb";
 const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const ISSC = "49535343-fe7d-4ae5-8fa9-9fafd205e455";
+const INFO = "0000180a-0000-1000-8000-00805f9b34fb";
 
-export const ELM_OPTIONAL_SERVICES = [FFF0, FFE0, NUS, ISSC];
+export const ELM_OPTIONAL_SERVICES = [FFF0, FFE0, NUS, ISSC, INFO];
 
 const PID_FIELD: Record<string, keyof Telemetry> = {
   "0C": "rpm",
@@ -34,6 +38,7 @@ const PID_FIELD: Record<string, keyof Telemetry> = {
 };
 
 const FAST_PIDS = ["0C", "0D", "04", "11", "0B", "42", "05", "06", "0F", "10", "33", "2F"];
+const CHUNK = 20;
 
 function encoder() {
   return new TextEncoder();
@@ -45,6 +50,10 @@ function decoder() {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function normUuid(u: string) {
+  return u.replace(/[{}]/g, "").toLowerCase();
 }
 
 export function applyPid(t: Telemetry, pid: string, value: number): Telemetry {
@@ -78,29 +87,73 @@ export function parseElmPayload(text: string): { pid: string; value: number }[] 
   return out;
 }
 
+async function charPair(
+  service: BluetoothRemoteGATTService,
+  writeId?: string,
+  notifyId?: string,
+): Promise<{ write: BluetoothRemoteGATTCharacteristic; notify: BluetoothRemoteGATTCharacteristic } | null> {
+  if (writeId && notifyId) {
+    try {
+      return {
+        write: await service.getCharacteristic(writeId),
+        notify: await service.getCharacteristic(notifyId),
+      };
+    } catch {
+      // fall through to scan
+    }
+  }
+  const chars = await service.getCharacteristics();
+  const notify = chars.find((c) => c.properties.notify || c.properties.indicate);
+  const write = chars.find((c) => c.properties.writeWithoutResponse || c.properties.write);
+  if (notify && write) return { write, notify };
+  return null;
+}
+
 async function findUart(server: BluetoothRemoteGATTServer): Promise<{
   write: BluetoothRemoteGATTCharacteristic;
   notify: BluetoothRemoteGATTCharacteristic;
 }> {
-  const services = await server.getPrimaryServices();
-  for (const service of services) {
-    const chars = await service.getCharacteristics();
-    const notify = chars.find((c) => c.properties.notify || c.properties.indicate);
-    const write = chars.find(
-      (c) => c.properties.write || c.properties.writeWithoutResponse,
-    );
-    if (notify && write) return { write, notify };
+  const known: Array<{ svc: string; write?: string; notify?: string }> = [
+    { svc: FFF0, write: FFF2, notify: FFF1 },
+    { svc: FFE0, write: FFE1, notify: FFE1 },
+    { svc: NUS, write: NUS_RX, notify: NUS_TX },
+    { svc: ISSC },
+  ];
+  for (const spec of known) {
+    try {
+      const service = await server.getPrimaryService(spec.svc);
+      const pair = await charPair(service, spec.write, spec.notify);
+      if (pair) return pair;
+    } catch {
+      // try next profile
+    }
   }
   try {
-    const nus = await server.getPrimaryService(NUS);
-    return {
-      write: await nus.getCharacteristic(NUS_RX),
-      notify: await nus.getCharacteristic(NUS_TX),
-    };
+    const services = await server.getPrimaryServices();
+    for (const service of services) {
+      if (normUuid(service.uuid).includes("180a") || normUuid(service.uuid).includes("fef5")) continue;
+      const pair = await charPair(service);
+      if (pair) return pair;
+    }
   } catch {
-    // fall through
+    // Chrome hides services that were not listed in optionalServices
   }
-  throw new Error("No writable/notify UART on this adapter. Need BLE ELM or OBDLink CX.");
+  throw new Error(
+    "GATT connected but no UART. Close the official OBDLink app, then pair again. Need FFF0/FFF1/FFF2.",
+  );
+}
+
+async function writeChunked(char: BluetoothRemoteGATTCharacteristic, bytes: Uint8Array) {
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const slice = bytes.slice(i, i + CHUNK);
+    try {
+      if (char.properties.writeWithoutResponse) await char.writeValueWithoutResponse(slice);
+      else await char.writeValue(slice);
+    } catch {
+      await char.writeValue(slice);
+    }
+    if (i + CHUNK < bytes.length) await sleep(8);
+  }
 }
 
 export class ElmSession {
@@ -110,7 +163,6 @@ export class ElmSession {
   private buf = "";
   private waiter: ((s: string) => void) | null = null;
   private pollTimer: number | null = null;
-  private onChunk: ((s: string) => void) | null = null;
   stopped = false;
 
   constructor(device: BluetoothDevice) {
@@ -118,24 +170,44 @@ export class ElmSession {
   }
 
   async start() {
-    const server = await this.device.gatt?.connect();
-    if (!server) throw new Error("GATT connect failed");
+    const gatt = this.device.gatt;
+    if (!gatt) throw new Error("No GATT on this device");
+    let server: BluetoothRemoteGATTServer | null = null;
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        server = await gatt.connect();
+        if (server?.connected) break;
+      } catch (err) {
+        last = err;
+        await sleep(400 * (attempt + 1));
+      }
+    }
+    if (!server?.connected) {
+      const msg = last instanceof Error ? last.message : "GATT connect failed";
+      throw new Error(
+        `${msg}. Unplug/replug the CX, quit the OBDLink app, key on, then pair again.`,
+      );
+    }
     const uart = await findUart(server);
     this.write = uart.write;
     this.notify = uart.notify;
     this.notify.addEventListener("characteristicvaluechanged", this.onNotify);
     await this.notify.startNotifications();
-    await this.command("ATZ", 2000);
-    await sleep(200);
-    await this.command("ATE0", 800);
-    await this.command("ATL0", 800);
-    await this.command("ATS0", 800);
-    await this.command("ATH0", 800);
-    await this.command("ATAT1", 800);
-    await this.command("ATSP0", 1500);
-    const probe = await this.command("0100", 2500);
-    if (/UNABLE|ERROR|\?/i.test(probe) && !/41/.test(probe)) {
-      throw new Error("Adapter answered but the ECU did not. Key on, 7610 unplugged.");
+    await sleep(80);
+    await this.command("ATZ", 2500);
+    await sleep(250);
+    await this.command("ATE0", 900);
+    await this.command("ATL0", 900);
+    await this.command("ATS0", 900);
+    await this.command("ATH0", 900);
+    await this.command("ATAT1", 900);
+    // Taos 1.5 TSI is ISO 15765-4 CAN 11/500. Auto-protocol hangs on some STN builds.
+    await this.command("ATSP6", 1200);
+    const probe = await this.command("0100", 3000);
+    if (/UNABLE|ERROR|BUS INIT/i.test(probe) && !/41/.test(probe)) {
+      await this.command("ATSP0", 1500);
+      await this.command("0100", 3000);
     }
   }
 
@@ -144,7 +216,6 @@ export class ElmSession {
     const value = target.value;
     if (!value) return;
     this.buf += decoder().decode(value);
-    this.onChunk?.(this.buf);
     if (this.buf.includes(">") && this.waiter) {
       const done = this.buf;
       this.buf = "";
@@ -158,7 +229,7 @@ export class ElmSession {
     if (!this.write) throw new Error("Not connected");
     this.buf = "";
     const payload = encoder().encode(`${cmd}\r`);
-    const reply = new Promise<string>((resolve, reject) => {
+    const reply = new Promise<string>((resolve) => {
       const t = window.setTimeout(() => {
         this.waiter = null;
         resolve(this.buf || "");
@@ -168,11 +239,7 @@ export class ElmSession {
         resolve(s);
       };
     });
-    try {
-      await this.write.writeValueWithoutResponse(payload);
-    } catch {
-      await this.write.writeValue(payload);
-    }
+    await writeChunked(this.write, payload);
     return reply;
   }
 
@@ -185,7 +252,7 @@ export class ElmSession {
       const pid = FAST_PIDS[i % FAST_PIDS.length];
       i += 1;
       try {
-        const raw = await this.command(`01${pid}`, 900);
+        const raw = await this.command(`01${pid}`, 1100);
         const parsed = parseElmPayload(raw);
         if (parsed.length) {
           live = true;
@@ -197,7 +264,7 @@ export class ElmSession {
       } catch {
         // keep last good frame
       }
-      if (!this.stopped) this.pollTimer = window.setTimeout(() => void tick(), 40);
+      if (!this.stopped) this.pollTimer = window.setTimeout(() => void tick(), 50);
     };
     void tick();
   }
@@ -233,13 +300,31 @@ export class ElmSession {
 export async function requestElmDevice(): Promise<BluetoothDevice> {
   if (!navigator.bluetooth) {
     throw new Error(
-      "This browser has no Web Bluetooth. Stay on Demo, or open Chrome on a phone/Android tablet.",
+      "This browser has no Web Bluetooth. Silk cannot pair. Use Chrome or Edge on Android.",
     );
   }
-  return navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: ELM_OPTIONAL_SERVICES,
-  });
+  try {
+    return await navigator.bluetooth.requestDevice({
+      filters: [
+        { namePrefix: "OBDLink" },
+        { namePrefix: "OBD" },
+        { namePrefix: "CX" },
+        { namePrefix: "STN" },
+        { namePrefix: "Veepeak" },
+        { namePrefix: "VEEPEAK" },
+        { namePrefix: "OBDBLE" },
+        { services: [FFF0] },
+      ],
+      optionalServices: ELM_OPTIONAL_SERVICES,
+    });
+  } catch (err) {
+    const cancelled = err instanceof Error && /cancel/i.test(err.message);
+    if (cancelled) throw err;
+    return navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: ELM_OPTIONAL_SERVICES,
+    });
+  }
 }
 
 void POLL_PIDS;
