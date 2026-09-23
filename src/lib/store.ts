@@ -2,15 +2,13 @@ import { create } from "zustand";
 import { ElmSession, requestElmDevice } from "@/lib/obd/elm-ble";
 import { modulesFor } from "@/lib/taos/modules";
 import { VEHICLE, type Drivetrain, type Trim } from "@/lib/taos/specs";
+import { type DriveType } from "@/lib/taos/drive-types";
 import {
-  boostPsi,
-  cruiseTelemetry,
   emptyTelemetry,
   type ConnectionMode,
   type FaultRecord,
   type HistoryPoint,
   type ModuleLive,
-  type Scenario,
   type Telemetry,
   type Units,
   type ViewId,
@@ -25,10 +23,10 @@ interface AppState {
   year: number;
   trim: Trim;
   drivetrain: Drivetrain;
+  driveType: DriveType;
   dimmer: number;
   keepAwake: boolean;
   clock: string;
-  scenario: Scenario;
   telemetry: Telemetry;
   history: HistoryPoint[];
   modules: ModuleLive[];
@@ -41,15 +39,14 @@ interface AppState {
   setYear: (year: number) => void;
   setTrim: (trim: Trim) => void;
   setDrivetrain: (drivetrain: Drivetrain) => void;
+  setDriveType: (driveType: DriveType) => void;
   setDimmer: (dimmer: number) => void;
   setKeepAwake: (on: boolean) => void;
-  startDemo: () => void;
   connectBluetooth: () => Promise<void>;
   disconnect: () => void;
 }
 
 let runtimeStarted = false;
-let demoTimer: number | null = null;
 let clockTimer: number | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 let elm: ElmSession | null = null;
@@ -63,29 +60,12 @@ function nowClock() {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function seedModules(trim: Trim, drivetrain: Drivetrain, scenario: Scenario): ModuleLive[] {
+function seedModules(trim: Trim, drivetrain: Drivetrain): ModuleLive[] {
   return modulesFor(trim, drivetrain).map((mod) => ({
     address: mod.address,
-    status: scenario === "p2080" && mod.address === "01" ? "fault" : "ok",
-    dtcCount: scenario === "p2080" && mod.address === "01" ? 1 : 0,
+    status: "ok" as const,
+    dtcCount: 0,
   }));
-}
-
-function tickDemo(prev: Telemetry, scenario: Scenario): Telemetry {
-  const base = cruiseTelemetry(scenario);
-  const wobble = Math.sin(Date.now() / 900);
-  return {
-    ...prev,
-    ...base,
-    rpm: Math.round(base.rpm + wobble * 80),
-    speedKmh: Math.round(base.speedKmh + wobble * 2),
-    load: Math.max(8, Math.min(70, base.load + wobble * 6)),
-    throttle: Math.max(8, Math.min(60, base.throttle + wobble * 4)),
-    mapKpa: base.mapKpa + wobble * 4,
-    voltage: +(base.voltage + wobble * 0.04).toFixed(2),
-    runtimeSec: prev.runtimeSec + 0.25,
-    mil: scenario === "p2080",
-  };
 }
 
 async function requestWakeLock() {
@@ -99,19 +79,19 @@ async function requestWakeLock() {
 export const useApp = create<AppState>((set, get) => ({
   view: "drive",
   setupOpen: false,
-  connection: "demo",
+  connection: "idle",
   connecting: false,
   units: "us",
   year: 2024,
   trim: "SE",
   drivetrain: "FWD",
+  driveType: "street",
   dimmer: 1,
   keepAwake: true,
   clock: nowClock(),
-  scenario: "healthy",
-  telemetry: cruiseTelemetry("healthy"),
+  telemetry: emptyTelemetry(),
   history: [],
-  modules: seedModules("SE", "FWD", "healthy"),
+  modules: seedModules("SE", "FWD"),
   faults: [],
   lastError: null,
   adapterName: null,
@@ -119,9 +99,9 @@ export const useApp = create<AppState>((set, get) => ({
   setSetupOpen: (setupOpen) => set({ setupOpen }),
   setUnits: (units) => set({ units }),
   setYear: (year) => set({ year }),
-  setTrim: (trim) => set({ trim, modules: seedModules(trim, get().drivetrain, get().scenario) }),
-  setDrivetrain: (drivetrain) =>
-    set({ drivetrain, modules: seedModules(get().trim, drivetrain, get().scenario) }),
+  setTrim: (trim) => set({ trim, modules: seedModules(trim, get().drivetrain) }),
+  setDrivetrain: (drivetrain) => set({ drivetrain, modules: seedModules(get().trim, drivetrain) }),
+  setDriveType: (driveType) => set({ driveType }),
   setDimmer: (dimmer) => set({ dimmer }),
   setKeepAwake: (keepAwake) => {
     set({ keepAwake });
@@ -130,16 +110,6 @@ export const useApp = create<AppState>((set, get) => ({
       void wakeLock?.release();
       wakeLock = null;
     }
-  },
-  startDemo: () => {
-    elm?.stop();
-    elm = null;
-    set({
-      connection: "demo",
-      lastError: null,
-      adapterName: null,
-      telemetry: cruiseTelemetry(get().scenario),
-    });
   },
   connectBluetooth: async () => {
     set({ connecting: true, lastError: null });
@@ -153,9 +123,10 @@ export const useApp = create<AppState>((set, get) => ({
           session.stop();
           elm = null;
           useApp.setState({
-            connection: "demo",
-            lastError: "Adapter disconnected. Back on demo.",
+            connection: "idle",
+            lastError: "Adapter disconnected.",
             adapterName: null,
+            telemetry: emptyTelemetry(),
           });
         }
       });
@@ -181,7 +152,7 @@ export const useApp = create<AppState>((set, get) => ({
       elm = null;
       set({
         connecting: false,
-        connection: "demo",
+        connection: "idle",
         adapterName: null,
         lastError: err instanceof Error ? err.message : "Bluetooth pairing cancelled",
       });
@@ -190,7 +161,7 @@ export const useApp = create<AppState>((set, get) => ({
   disconnect: () => {
     elm?.stop();
     elm = null;
-    set({ connection: "demo", adapterName: null });
+    set({ connection: "idle", adapterName: null, telemetry: emptyTelemetry() });
   },
 }));
 
@@ -204,25 +175,6 @@ export function startRuntime() {
     useApp.setState({ clock: nowClock() });
   }, 15_000);
 
-  demoTimer = window.setInterval(() => {
-    const s = useApp.getState();
-    if (s.connection !== "demo") return;
-    const next = tickDemo(s.telemetry, s.scenario);
-    const point: HistoryPoint = {
-      t: Date.now(),
-      rpm: next.rpm,
-      speedKmh: next.speedKmh,
-      boostPsi: boostPsi(next),
-      coolantC: next.coolantC,
-      stft: next.stft,
-      voltage: next.voltage,
-    };
-    useApp.setState({
-      telemetry: next,
-      history: [...s.history.slice(-119), point],
-    });
-  }, 250);
-
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && useApp.getState().keepAwake) {
       void requestWakeLock();
@@ -230,7 +182,6 @@ export function startRuntime() {
   });
 
   return () => {
-    if (demoTimer) window.clearInterval(demoTimer);
     if (clockTimer) window.clearInterval(clockTimer);
     runtimeStarted = false;
   };

@@ -3,7 +3,7 @@ import type { ModuleStatus } from "@/lib/taos/modules";
 
 export type Units = "us" | "metric";
 export type ViewId = "drive" | "systems" | "live" | "codes" | "service";
-export type ConnectionMode = "idle" | "demo" | "bluetooth" | "serial";
+export type ConnectionMode = "idle" | "bluetooth" | "serial";
 export type Scenario = "healthy" | "p2080";
 
 export interface Telemetry {
@@ -54,36 +54,6 @@ export interface FaultRecord {
   code: string;
   status: DtcStatus;
   module: string;
-}
-
-export function cruiseTelemetry(scenario: Scenario = "healthy"): Telemetry {
-  return {
-    rpm: 2100,
-    speedKmh: 108,
-    load: 32,
-    throttle: 26,
-    accel: 24,
-    timing: 12,
-    coolantC: 91,
-    iatC: 24,
-    ambientC: 18,
-    oilTempC: 96,
-    transTempC: 78,
-    mapKpa: 119,
-    baroKpa: 101,
-    mafGps: 12,
-    stft: 0.4,
-    ltft: 0.6,
-    fuelPct: 62,
-    fuelRateLph: 3.2,
-    equiv: 1,
-    voltage: 13.95,
-    oilPsi: 28,
-    runtimeSec: 140,
-    mil: scenario === "p2080",
-    gear: 7,
-    driveMode: "D",
-  };
 }
 
 export function emptyTelemetry(): Telemetry {
