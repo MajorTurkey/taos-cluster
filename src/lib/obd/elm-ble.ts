@@ -37,8 +37,8 @@ const PID_FIELD: Record<string, keyof Telemetry> = {
   "1F": "runtimeSec",
 };
 
-const FAST_PIDS = ["0C", "0D", "11", "0B"];
-const SLOW_PIDS = ["04", "42", "05", "2F", "0F"];
+const FAST_PIDS = ["0C", "0D", "0B", "33"];
+const SLOW_PIDS = ["11", "04", "42", "05", "2F", "0F"];
 const CHUNK = 20;
 
 function encoder() {
@@ -63,6 +63,8 @@ export function applyPid(t: Telemetry, pid: string, value: number): Telemetry {
   const next = { ...t, [field]: value };
   if (pid === "0C") next.rpm = Math.round(value);
   if (pid === "0D") next.speedKmh = Math.round(value);
+  if (pid === "0B") next.mapKpa = value;
+  if (pid === "33") next.baroKpa = value;
   return next;
 }
 
@@ -209,6 +211,8 @@ export class ElmSession {
       await this.command("ATSP0", 1200);
       await this.command("0100", 2500);
     }
+    await this.command("0133", 800);
+    await this.command("010B", 800);
   }
 
   private onNotify = (ev: Event) => {
