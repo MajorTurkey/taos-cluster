@@ -8,6 +8,7 @@ import { SystemsView } from "@/components/cluster/systems-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { startRuntime, useApp } from "@/lib/store";
+import { DRIVE_TYPE_DEFS } from "@/lib/taos/drive-types";
 import type { ViewId } from "@/lib/obd/types";
 import { cn } from "@/lib/utils";
 import { Settings2 } from "lucide-react";
@@ -28,10 +29,16 @@ export function AppShell() {
   const mil = useApp((s) => s.telemetry.mil);
   const clock = useApp((s) => s.clock);
   const dimmer = useApp((s) => s.dimmer);
+  const driveType = useApp((s) => s.driveType);
+  const accent = DRIVE_TYPE_DEFS[driveType].accent;
 
   const [dash, setDash] = useState(false);
 
   useEffect(() => startRuntime(), []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--color-accent", accent);
+  }, [accent]);
 
   useEffect(() => {
     const sync = () => {
@@ -84,10 +91,8 @@ export function AppShell() {
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden font-mono text-sm tabular-nums text-muted sm:inline">{clock}</span>
-          <Badge
-            tone={connection === "idle" ? "idle" : mil ? "fault" : connection === "demo" ? "live" : "ok"}
-          >
-            {mil ? "MIL" : connection === "demo" ? "DEMO" : connection === "idle" ? "OFF" : "LIVE"}
+          <Badge tone={connection === "idle" ? "idle" : mil ? "fault" : "ok"}>
+            {mil ? "MIL" : connection === "idle" ? "OFF" : "LIVE"}
           </Badge>
           <Button variant="ghost" size="icon" onClick={() => setSetupOpen(true)} aria-label="Adapter and display">
             <Settings2 />

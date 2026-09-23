@@ -1,20 +1,31 @@
 # TAOS CLUSTER
 
-Tablet dash for a Volkswagen Taos (2022+, 1.5 TSI). Built for a **Kindle Fire 12th gen** (Silk) in landscape.
+Tablet dash for a Volkswagen Taos (2022+, 1.5 TSI). Built for landscape use.
 
-Live gauges run in **demo** on the Fire. Silk has no Web Bluetooth, so a BLE ELM327 will not pair on this tablet. Use demo on the Fire; use Chrome + BLE on a phone if you want live OBD.
+Neon gauges. Drive types: Street, Sport, Eco, Tow, Off-road. **Live OBD only — no demo.**
 
-## Open on the Fire
-
-1. Vercel deploys from `main`.
-2. On the Fire, open Silk and go to the `*.vercel.app` URL.
-3. Silk menu → **Add to Home Screen**.
-4. Landscape. Gear → keep awake + fullscreen.
-
-No database or env vars. Auth stays off.
-
-## Live data (not on Silk)
+## Live data
 
 The Autophix 7610 is a wired handheld. It does not stream to this app.
 
-For live RPM / boost / temps: unplug the 7610, plug a **BLE** ELM327 into the purple 16-pin port, then pair from **Chrome** (not Silk).
+Unplug the 7610, plug a **BLE** ELM327 / OBDLink CX into the purple 16-pin port, pair from **Chrome** (Web Bluetooth). Silk on Kindle Fire cannot pair BLE.
+
+Needles sit at zero until an adapter is live.
+
+## Drive types
+
+Switch on the Drive screen or in Setup. Each type changes neon color, which tiles sit on the strip, and how early the shift lights go hot.
+
+- Street — cyan daily
+- Sport — magenta, earlier redline
+- Eco — green, MPG first
+- Tow — amber, temps + battery
+- Off-road — lime, throttle + load
+
+## Open
+
+1. Vercel deploys from `main`.
+2. Chrome → pair adapter → Drive.
+3. Gear → keep awake + fullscreen.
+
+No database or env vars. Auth stays off.

@@ -2,6 +2,7 @@ import { ConnectGuide } from "@/components/cluster/connect-guide";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useApp } from "@/lib/store";
+import { DRIVE_TYPE_DEFS, DRIVE_TYPES } from "@/lib/taos/drive-types";
 import { DRIVETRAINS, TRIMS, YEARS } from "@/lib/taos/specs";
 
 export function SetupPanel() {
@@ -15,12 +16,13 @@ export function SetupPanel() {
   const setTrim = useApp((s) => s.setTrim);
   const drivetrain = useApp((s) => s.drivetrain);
   const setDrivetrain = useApp((s) => s.setDrivetrain);
+  const driveType = useApp((s) => s.driveType);
+  const setDriveType = useApp((s) => s.setDriveType);
   const dimmer = useApp((s) => s.dimmer);
   const setDimmer = useApp((s) => s.setDimmer);
   const keepAwake = useApp((s) => s.keepAwake);
   const setKeepAwake = useApp((s) => s.setKeepAwake);
   const lastError = useApp((s) => s.lastError);
-  const startDemo = useApp((s) => s.startDemo);
   const disconnect = useApp((s) => s.disconnect);
   const connecting = useApp((s) => s.connecting);
   const connection = useApp((s) => s.connection);
@@ -36,8 +38,8 @@ export function SetupPanel() {
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogTitle>Adapter and display</DialogTitle>
         <DialogDescription>
-          Kindle Fire 12th gen runs this as a night dash. Silk has no Web Bluetooth — demo works on
-          the tablet; live OBDLink CX needs Chrome + BLE on another device.
+          Live cluster only. Pair a BLE ELM327 / OBDLink CX from Chrome. Silk on the Fire cannot
+          talk Bluetooth — use Chrome on a phone or a tablet that has Web Bluetooth.
         </DialogDescription>
         {adapterName ? (
           <p className="mt-3 text-sm text-muted">
@@ -47,10 +49,7 @@ export function SetupPanel() {
         {lastError ? <p className="mt-3 text-sm text-fault">{lastError}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button disabled={connecting} onClick={() => void useApp.getState().connectBluetooth()}>
-            {connecting ? "Pairing…" : "Pair OBDLink CX"}
-          </Button>
-          <Button variant="outline" onClick={startDemo}>
-            Demo cluster
+            {connecting ? "Pairing…" : "Pair BLE adapter"}
           </Button>
           <Button variant="outline" onClick={disconnect}>
             Disconnect
@@ -58,6 +57,27 @@ export function SetupPanel() {
           <Button variant="outline" onClick={goFullscreen}>
             Fullscreen
           </Button>
+        </div>
+        <div className="mt-4">
+          <div className="text-cluster uppercase text-subtle">Drive type</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {DRIVE_TYPES.map((id) => {
+              const item = DRIVE_TYPE_DEFS[id];
+              const on = driveType === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={on ? "drive-chip is-on" : "drive-chip"}
+                  style={on ? { background: item.accent, boxShadow: `0 0 16px ${item.accent}` } : undefined}
+                  onClick={() => setDriveType(id)}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-muted">{DRIVE_TYPE_DEFS[driveType].hint}</p>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
           <label className="text-muted">
@@ -100,7 +120,7 @@ export function SetupPanel() {
             </select>
           </label>
           <label className="text-muted">
-            Drive
+            Drivetrain
             <select
               className="mt-1 w-full rounded-md bg-raised px-2 py-2 text-fg"
               value={drivetrain}

@@ -7,13 +7,13 @@ export function ConnectGuide({ compact = false }: { compact?: boolean }) {
   const connecting = useApp((s) => s.connecting);
 
   return (
-    <section className="rounded-xl bg-surface px-5 py-5 shadow-[0_0_0_1px_rgba(236,236,232,0.06)]">
-      <div className="text-cluster text-subtle uppercase">Hook up this tablet</div>
-      <h2 className="mt-1 text-lg font-medium tracking-tight">No OBD on the tablet — use a dongle in the car</h2>
+    <section className="rounded-xl bg-surface px-5 py-5 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_22%,transparent)]">
+      <div className="text-cluster text-subtle uppercase">Hook up</div>
+      <h2 className="mt-1 text-lg font-medium tracking-tight">Live OBD only — pair a BLE dongle</h2>
       {!compact ? (
         <p className="mt-2 max-w-2xl text-sm leading-normal text-muted">
-          This screen is the dash. The car holds the data. A small Bluetooth adapter sits in the
-          Taos OBD port and this tablet reads it. The Autophix 7610 does not do that job.
+          No simulated needles. The Autophix 7610 does not stream. Unplug it, plug a BLE ELM327 into
+          the purple 16-pin port, pair from Chrome.
         </p>
       ) : null}
       <ol className="mt-4 flex flex-col gap-3">
@@ -54,11 +54,9 @@ export function ConnectBanner() {
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-md bg-raised px-3 py-2 shadow-[var(--shadow-border)]">
-      <p className="truncate text-xs text-muted sm:text-sm">
-        Demo cluster · BLE dongle in the purple OBD plug makes this live
-      </p>
+      <p className="truncate text-xs text-muted sm:text-sm">Needles sit at zero until a BLE adapter is live</p>
       <Button variant="outline" size="sm" onClick={() => setSetupOpen(true)}>
-        Connect
+        Pair
       </Button>
     </div>
   );
