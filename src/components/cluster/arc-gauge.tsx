@@ -48,31 +48,42 @@ export function ArcGauge({
       : warnFrom !== undefined && value >= warnFrom
         ? "warn"
         : "ok";
-  const stroke = hot === "fault" ? "var(--color-fault)" : hot === "warn" ? "var(--color-warn)" : "var(--color-accent)";
+  const stroke =
+    hot === "fault" ? "var(--color-fault)" : hot === "warn" ? "var(--color-warn)" : "var(--color-accent)";
   const needle = polar(50, 54, 34, angle);
 
   return (
     <div className={cn("relative flex flex-col items-center", className)}>
       <svg viewBox="0 0 100 78" className="h-auto w-full max-h-[46vh]">
+        <defs>
+          <filter id="neon-arc" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="1.4" result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
         <path
           d={arcPath(50, 54, 38, start, start + sweep)}
           fill="none"
-          stroke="var(--color-line)"
-          strokeWidth="3.2"
+          stroke="color-mix(in oklab, var(--color-accent) 22%, #061018)"
+          strokeWidth="4.2"
           strokeLinecap="round"
         />
         <path
           d={arcPath(50, 54, 38, start, angle)}
           fill="none"
           stroke={stroke}
-          strokeWidth="3.2"
+          strokeWidth="4.4"
           strokeLinecap="round"
           className="gauge-arc"
+          filter="url(#neon-arc)"
         />
         {Array.from({ length: ticks }).map((_, i) => {
           const a = start + (sweep * i) / (ticks - 1);
-          const outer = polar(50, 54, 42.5, a);
-          const inner = polar(50, 54, i % 2 === 0 ? 36.5 : 38.2, a);
+          const outer = polar(50, 54, 43.2, a);
+          const inner = polar(50, 54, i % 2 === 0 ? 36.2 : 38.4, a);
           return (
             <line
               key={i}
@@ -80,8 +91,9 @@ export function ArcGauge({
               y1={inner.y}
               x2={outer.x}
               y2={outer.y}
-              stroke="var(--color-subtle)"
-              strokeWidth={i % 2 === 0 ? 0.7 : 0.4}
+              stroke="color-mix(in oklab, var(--color-accent) 55%, white)"
+              strokeWidth={i % 2 === 0 ? 0.85 : 0.4}
+              opacity={0.7}
             />
           );
         })}
@@ -91,11 +103,12 @@ export function ArcGauge({
           x2={needle.x}
           y2={needle.y}
           stroke={stroke}
-          strokeWidth="1.4"
+          strokeWidth="1.6"
           strokeLinecap="round"
           className="gauge-needle"
         />
-        <circle cx="50" cy="54" r="2.2" fill={stroke} />
+        <circle cx="50" cy="54" r="2.6" fill={stroke} />
+        <circle cx="50" cy="54" r="1.1" fill="#031016" />
       </svg>
       <div className="pointer-events-none absolute inset-x-0 top-[42%] text-center">
         <div className="text-cluster uppercase text-subtle">{label}</div>
