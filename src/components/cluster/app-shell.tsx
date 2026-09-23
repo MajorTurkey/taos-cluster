@@ -28,9 +28,6 @@ export function AppShell() {
   const mil = useApp((s) => s.telemetry.mil);
   const clock = useApp((s) => s.clock);
   const dimmer = useApp((s) => s.dimmer);
-  const year = useApp((s) => s.year);
-  const trim = useApp((s) => s.trim);
-  const drivetrain = useApp((s) => s.drivetrain);
 
   const [dash, setDash] = useState(false);
 
@@ -55,10 +52,10 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg text-fg">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-bg text-fg">
       <header
         className={cn(
-          "flex flex-wrap items-center gap-2 border-b border-line/80 bg-bg/80 px-3 backdrop-blur-sm sm:gap-3 sm:px-5",
+          "flex shrink-0 flex-wrap items-center gap-2 border-b border-line/80 bg-bg/80 px-3 backdrop-blur-sm sm:gap-3 sm:px-5",
           dash ? "py-1 pt-[max(0.25rem,env(safe-area-inset-top))]" : "py-2 pt-[max(0.5rem,env(safe-area-inset-top))]",
         )}
       >
@@ -100,16 +97,11 @@ export function AppShell() {
 
       <main
         className={cn(
-          "flex-1 overflow-y-auto px-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5",
-          view === "drive" ? "py-3" : "py-5",
+          "min-h-0 flex-1 overflow-hidden px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-5",
+          view === "drive" ? "py-2" : "overflow-y-auto py-5",
         )}
         style={{ filter: `brightness(${dimmer})` }}
       >
-        {view !== "drive" ? (
-          <p className="mb-4 text-xs text-subtle">
-            {year} Taos {trim} · {drivetrain} · 1.5 TSI
-          </p>
-        ) : null}
         {view === "drive" ? <DriveView /> : null}
         {view === "systems" ? <SystemsView /> : null}
         {view === "live" ? <LiveView /> : null}
