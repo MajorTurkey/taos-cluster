@@ -50,6 +50,7 @@ let runtimeStarted = false;
 let clockTimer: number | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 let elm: ElmSession | null = null;
+let lastHistoryAt = 0;
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -139,13 +140,17 @@ export const useApp = create<AppState>((set, get) => ({
         lastError: null,
       });
       session.startPolling((telemetry, live) => {
-        const s = useApp.getState();
-        const point = session.historyPoint(telemetry);
-        useApp.setState({
+        const now = Date.now();
+        const patch: Partial<AppState> = {
           telemetry,
-          connection: live ? "bluetooth" : s.connection === "bluetooth" ? "bluetooth" : "idle",
-          history: [...s.history.slice(-119), point],
-        });
+          connection: live ? "bluetooth" : useApp.getState().connection,
+        };
+        if (now - lastHistoryAt > 400) {
+          lastHistoryAt = now;
+          const s = useApp.getState();
+          patch.history = [...s.history.slice(-59), session.historyPoint(telemetry)];
+        }
+        useApp.setState(patch);
       });
     } catch (err) {
       elm?.stop();

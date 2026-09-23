@@ -37,7 +37,8 @@ const PID_FIELD: Record<string, keyof Telemetry> = {
   "1F": "runtimeSec",
 };
 
-const FAST_PIDS = ["0C", "0D", "04", "11", "0B", "42", "05", "06", "0F", "10", "33", "2F"];
+const FAST_PIDS = ["0C", "0D", "11", "0B"];
+const SLOW_PIDS = ["04", "42", "05", "2F", "0F"];
 const CHUNK = 20;
 
 function encoder() {
@@ -197,17 +198,16 @@ export class ElmSession {
     await sleep(80);
     await this.command("ATZ", 2500);
     await sleep(250);
-    await this.command("ATE0", 900);
-    await this.command("ATL0", 900);
-    await this.command("ATS0", 900);
-    await this.command("ATH0", 900);
-    await this.command("ATAT1", 900);
-    // Taos 1.5 TSI is ISO 15765-4 CAN 11/500. Auto-protocol hangs on some STN builds.
-    await this.command("ATSP6", 1200);
-    const probe = await this.command("0100", 3000);
+    await this.command("ATE0", 700);
+    await this.command("ATL0", 700);
+    await this.command("ATS0", 700);
+    await this.command("ATH0", 700);
+    await this.command("ATAT2", 700);
+    await this.command("ATSP6", 1000);
+    const probe = await this.command("0100", 2500);
     if (/UNABLE|ERROR|BUS INIT/i.test(probe) && !/41/.test(probe)) {
-      await this.command("ATSP0", 1500);
-      await this.command("0100", 3000);
+      await this.command("ATSP0", 1200);
+      await this.command("0100", 2500);
     }
   }
 
@@ -225,7 +225,7 @@ export class ElmSession {
     }
   };
 
-  async command(cmd: string, timeoutMs = 1200): Promise<string> {
+  async command(cmd: string, timeoutMs = 450): Promise<string> {
     if (!this.write) throw new Error("Not connected");
     this.buf = "";
     const payload = encoder().encode(`${cmd}\r`);
@@ -246,27 +246,45 @@ export class ElmSession {
   startPolling(apply: (next: Telemetry, live: boolean) => void) {
     let telemetry = emptyTelemetry();
     let live = false;
-    let i = 0;
+    let cycle = 0;
+    let pending = false;
+    let raf = 0;
+    const flush = (isLive: boolean) => {
+      if (pending) return;
+      pending = true;
+      raf = window.requestAnimationFrame(() => {
+        pending = false;
+        apply(telemetry, isLive);
+      });
+    };
     const tick = async () => {
       if (this.stopped) return;
-      const pid = FAST_PIDS[i % FAST_PIDS.length];
-      i += 1;
-      try {
-        const raw = await this.command(`01${pid}`, 1100);
-        const parsed = parseElmPayload(raw);
-        if (parsed.length) {
-          live = true;
-          for (const p of parsed) telemetry = applyPid(telemetry, p.pid, p.value);
-          apply(telemetry, true);
-        } else if (!live) {
-          apply(telemetry, false);
+      const wantSlow = cycle % 5 === 0;
+      const extra = SLOW_PIDS[Math.floor(cycle / 5) % SLOW_PIDS.length];
+      const list = wantSlow ? [...FAST_PIDS, extra] : FAST_PIDS;
+      cycle += 1;
+      let got = false;
+      for (const pid of list) {
+        if (this.stopped) return;
+        try {
+          const raw = await this.command(`01${pid}`, 380);
+          const parsed = parseElmPayload(raw);
+          if (parsed.length) {
+            got = true;
+            live = true;
+            for (const p of parsed) telemetry = applyPid(telemetry, p.pid, p.value);
+          }
+        } catch {
+          // keep last good frame
         }
-      } catch {
-        // keep last good frame
       }
-      if (!this.stopped) this.pollTimer = window.setTimeout(() => void tick(), 50);
+      if (got || !live) flush(live);
+      if (!this.stopped) this.pollTimer = window.setTimeout(() => void tick(), 16);
     };
     void tick();
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+    };
   }
 
   historyPoint(t: Telemetry): HistoryPoint {
